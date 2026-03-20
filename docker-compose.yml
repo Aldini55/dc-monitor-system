@@ -1,0 +1,78 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: dc-monitor-db
+    environment:
+      POSTGRES_USER: dcmonitor
+      POSTGRES_PASSWORD: dcmonitor
+      POSTGRES_DB: dcmonitor
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dcmonitor -d dcmonitor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: dc-monitor-redis
+    healthcheck:
+      test: ["CMD","redis-cli","ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    container_name: dc-monitor-api
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://dcmonitor:dcmonitor@db:5432/dcmonitor
+      - REDIS_URL=redis://redis:6379
+      - API_KEY=dc-monitor-secret-key
+      - TELEGRAM_TOKEN=8706838050:AAHc8J8_ognFn8vFMk8Xrh7lqLtCEtT_YWU
+      - TELEGRAM_CHAT_ID=7122117962
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  simulator:
+    build: ./simulator
+    container_name: dc-monitor-simulator
+    environment:
+      - API_BASE_URL=http://api:8000
+      - INTERVAL_SECONDS=10
+      - API_KEY=dc-monitor-secret-key
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build: ./dashboard
+    container_name: dc-monitor-dashboard
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+
+volumes:
+  db_data:
+    driver: local

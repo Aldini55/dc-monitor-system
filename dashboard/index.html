@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>DC Monitor Pro Dashboard</title>
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --primary: #3b82f6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+        }
+
+        body.dark-mode {
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: #334155;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text-main);
+            line-height: 1.5;
+            padding-bottom: 40px;
+            transition: all 0.3s ease;
+        }
+        header {
+            background: var(--card-bg);
+            padding: 20px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+            position: sticky; top: 0; z-index: 100;
+        }
+        header h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #alert-badge {
+            background: var(--error);
+            color: white;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        .controls { display: flex; gap: 12px; align-items: center; }
+        .control-item {
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--card-bg);
+            color: var(--text-main);
+            font-size: 0.8rem;
+            outline: none;
+        }
+
+        /* EXTENSIÓN 3: Estilo Barra de Salud Global */
+        #health-container {
+            padding: 10px 32px;
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 15px;
+        }
+        .health-bar-bg { flex-grow: 1; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+        #health-bar-fill { height: 100%; width: 0%; transition: width 1s, background 0.5s; }
+
+        #summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            padding: 24px 32px;
+        }
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .stat-card .label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; }
+        .stat-card .value { font-size: 1.75rem; font-weight: 700; margin-top: 4px; }
+        .stat-card.critical .value { color: var(--error); }
+
+        #grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 20px;
+            padding: 0 32px;
+        }
+        .server-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+            transition: all 0.2s;
+        }
+        .server-card.status-critical { border-top: 4px solid var(--error); }
+        .server-card.status-warning { border-top: 4px solid var(--warning); }
+        .server-card.status-ok { border-top: 4px solid var(--success); }
+
+        .metric { margin-bottom: 12px; }
+        .metric-header { display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 4px; }
+        .bar-bg { background: rgba(148, 163, 184, 0.2); border-radius: 10px; height: 6px; overflow: hidden; }
+        .bar-fill { height: 100%; transition: width 0.8s ease-in-out; }
+
+        .status-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 6px; text-transform: uppercase; font-weight: 700; margin-bottom: 10px; display: inline-block; }
+        .badge-online { background: #dcfce7; color: #166534; }
+
+        #loading { text-align: center; padding: 50px; color: var(--text-muted); }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>DC Monitor <span id="alert-badge" style="display:none">0 CRITICAL</span></h1>
+        
+        <div class="controls">
+            <select id="sort-by" class="control-item" onchange="refresh()">
+                <option value="name">Sort by Name</option>
+                <option value="status">Sort by Status</option>
+            </select>
+
+            <select id="role-filter" class="control-item" onchange="refresh()">
+                <option value="ALL">All Roles</option>
+                <option value="WEB">Web</option>
+                <option value="DATABASE">DB</option>
+            </select>
+
+            <button class="control-item" onclick="toggleDarkMode()">🌓 Mode</button>
+            <span id="last-update" style="font-size: 10px">...</span>
+        </div>
+    </header>
+
+    <div id="health-container">
+        <span style="font-size: 0.8rem; font-weight: 700;">SYSTEM HEALTH</span>
+        <div class="health-bar-bg">
+            <div id="health-bar-fill"></div>
+        </div>
+        <span id="health-pct" style="font-size: 0.8rem; font-weight: 700;">0%</span>
+    </div>
+
+    <div id="summary">
+        <div class="stat-card info"><div class="label">Servers</div><div class="value" id="total-servers">--</div></div>
+        <div class="stat-card critical"><div class="label">Critical</div><div class="value" id="critical-alerts">--</div></div>
+    </div>
+
+    <div id="loading">Syncing with Datacenter...</div>
+    <div id="grid"></div>
+
+    <script>
+        const API = "http://localhost:8000";
+        const API_KEY = "dc-monitor-secret-key";
+        const HEADERS = { "X-API-Key": API_KEY };
+
+        function toggleDarkMode() {
+            const isDark = document.body.classList.toggle('dark-mode');
+            localStorage.setItem('darkMode', isDark);
+        }
+        if (localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark-mode');
+
+        function metricBar(label, value, unit, warn, crit) {
+            let cls = value >= crit ? "error" : (value >= warn ? "warning" : "success");
+            const pct = Math.min(value, 100);
+            return `
+                <div class="metric">
+                    <div class="metric-header"><span>${label}</span><strong>${value.toFixed(1)}${unit}</strong></div>
+                    <div class="bar-bg"><div class="bar-fill" style="width:${pct}%; background:var(--${cls})"></div></div>
+                </div>`;
+        }
+
+        async function fetchJSON(path) {
+            const res = await fetch(API + path, { headers: HEADERS });
+            return res.json();
+        }
+
+        async function refresh() {
+            try {
+                let [servers, alertSummary] = await Promise.all([
+                    fetchJSON("/servers/"),
+                    fetchJSON("/alerts/summary/open"),
+                ]);
+
+                document.getElementById("loading").style.display = "none";
+
+                // EXTENSIÓN 3: Lógica Health Score (100% - penalización por alertas)
+                const totalSrv = servers.length;
+                const critAlerts = alertSummary.critical || 0;
+                const warnAlerts = alertSummary.warning || 0;
+                let health = 100 - ((critAlerts * 20 + warnAlerts * 5) / (totalSrv || 1));
+                health = Math.max(0, Math.min(100, health));
+                
+                const hBar = document.getElementById("health-bar-fill");
+                hBar.style.width = health + "%";
+                hBar.style.background = health > 80 ? "var(--success)" : (health > 50 ? "var(--warning)" : "var(--error)");
+                document.getElementById("health-pct").textContent = Math.round(health) + "%";
+
+                // EXTENSIÓN 2: Filtrado
+                const role = document.getElementById("role-filter").value;
+                if (role !== "ALL") servers = servers.filter(s => s.role === role);
+
+                // EXTENSIÓN 3: Ordenamiento Dinámico
+                const sortBy = document.getElementById("sort-by").value;
+                servers.sort((a, b) => {
+                    if (sortBy === "name") return a.hostname.localeCompare(b.hostname);
+                    if (sortBy === "status") return a.status.localeCompare(b.status);
+                });
+
+                document.getElementById("total-servers").textContent = totalSrv;
+                document.getElementById("critical-alerts").textContent = critAlerts;
+
+                const badge = document.getElementById("alert-badge");
+                badge.style.display = critAlerts > 0 ? "inline" : "none";
+                badge.textContent = `${critAlerts} ALERT`;
+
+                const grid = document.getElementById("grid");
+                const metricPromises = servers.map(s => fetchJSON(`/servers/${s.id}/metrics/latest`));
+                const alertPromises = servers.map(s => fetchJSON(`/alerts/?server_id=${s.id}&status=open&limit=1`));
+                
+                const [metrics, alerts] = await Promise.all([
+                    Promise.all(metricPromises),
+                    Promise.all(alertPromises)
+                ]);
+
+                grid.innerHTML = servers.map((s, i) => {
+                    const m = metrics[i];
+                    const a = alerts[i].length > 0 ? alerts[i][0].severity : "ok";
+                    return `
+                        <div class="server-card status-${a}">
+                            <div style="display:flex; justify-content:space-between">
+                                <strong>${s.hostname}</strong>
+                                <span class="server-role">${s.role}</span>
+                            </div>
+                            <span class="status-badge badge-online">${s.status}</span>
+                            ${metricBar("CPU", m.cpu_usage, "%", 70, 90)}
+                            ${metricBar("TEMP", m.temperature, "°C", 25, 27)}
+                            <div style="font-size:10px; color:var(--text-muted); margin-top:10px">${s.ip_address} | ${s.datacenter_zone}</div>
+                        </div>`;
+                }).join("");
+
+                document.getElementById("last-update").textContent = new Date().toLocaleTimeString();
+            } catch (e) { console.error(e); }
+        }
+
+        setInterval(refresh, 10000);
+        refresh();
+    </script>
+</body>
+</html>
